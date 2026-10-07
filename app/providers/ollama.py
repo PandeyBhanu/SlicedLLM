@@ -1,5 +1,5 @@
 import time
-from typing import Optional
+
 import httpx
 import structlog
 
@@ -11,7 +11,7 @@ logger = structlog.get_logger(__name__)
 
 class OllamaProvider(BaseLLMProvider):
     """Ollama provider implementation using httpx AsyncClient.
-    
+
     Ollama is a local LLM provider that runs on localhost or a specified host.
     This implementation uses the Ollama REST API.
     """
@@ -22,7 +22,7 @@ class OllamaProvider(BaseLLMProvider):
     def __init__(self, config: ProviderConfig, model: str = "llama3"):
         super().__init__(config)
         self.model = model
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -41,16 +41,16 @@ class OllamaProvider(BaseLLMProvider):
     async def generate(
         self,
         prompt: str,
-        system_prompt: Optional[str] = None,
-        params: Optional[GenerationParams] = None,
+        system_prompt: str | None = None,
+        params: GenerationParams | None = None,
     ) -> LLMResponse:
         """Generate a response using Ollama API.
-        
+
         Args:
             prompt: The user prompt
             system_prompt: Optional system prompt
             params: Generation parameters
-            
+
         Returns:
             LLMResponse: Standardized response
         """
@@ -71,6 +71,9 @@ class OllamaProvider(BaseLLMProvider):
 
         if system_prompt:
             payload["system"] = system_prompt
+
+        if params.json_mode:
+            payload["format"] = "json"
 
         if params.max_tokens:
             payload["options"]["num_predict"] = params.max_tokens

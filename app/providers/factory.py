@@ -1,4 +1,3 @@
-from typing import Dict, Optional, Type
 import structlog
 
 from app.providers.base import BaseLLMProvider
@@ -11,20 +10,20 @@ logger = structlog.get_logger(__name__)
 
 class ProviderRegistry:
     """Registry for available LLM providers.
-    
+
     This class maintains a mapping of provider names to their implementation classes,
     allowing for dynamic provider instantiation and extensibility.
     """
 
-    _providers: Dict[str, Type[BaseLLMProvider]] = {
+    _providers: dict[str, type[BaseLLMProvider]] = {
         "ollama": OllamaProvider,
         "groq": GroqProvider,
     }
 
     @classmethod
-    def register(cls, name: str, provider_class: Type[BaseLLMProvider]) -> None:
+    def register(cls, name: str, provider_class: type[BaseLLMProvider]) -> None:
         """Register a new provider implementation.
-        
+
         Args:
             name: The name to register the provider under
             provider_class: The provider class to register
@@ -35,7 +34,7 @@ class ProviderRegistry:
     @classmethod
     def unregister(cls, name: str) -> None:
         """Unregister a provider.
-        
+
         Args:
             name: The name of the provider to unregister
         """
@@ -44,12 +43,12 @@ class ProviderRegistry:
             logger.info("Provider unregistered", provider=name)
 
     @classmethod
-    def get_provider_class(cls, name: str) -> Optional[Type[BaseLLMProvider]]:
+    def get_provider_class(cls, name: str) -> type[BaseLLMProvider] | None:
         """Get a provider class by name.
-        
+
         Args:
             name: The name of the provider
-            
+
         Returns:
             The provider class if found, None otherwise
         """
@@ -58,7 +57,7 @@ class ProviderRegistry:
     @classmethod
     def list_providers(cls) -> list[str]:
         """List all registered provider names.
-        
+
         Returns:
             List of registered provider names
         """
@@ -67,30 +66,30 @@ class ProviderRegistry:
 
 class ProviderFactory:
     """Factory for creating configured provider instances.
-    
+
     This class handles the instantiation of provider instances with their
     specific configurations, providing a clean interface for the service layer.
     """
 
     def __init__(self):
-        self._active_instances: Dict[str, BaseLLMProvider] = {}
+        self._active_instances: dict[str, BaseLLMProvider] = {}
 
     def create_provider(
         self,
         provider_name: str,
         config: ProviderConfig,
-        model: Optional[str] = None,
+        model: str | None = None,
     ) -> BaseLLMProvider:
         """Create a new provider instance.
-        
+
         Args:
             provider_name: The name of the provider to create
             config: The configuration for the provider
             model: Optional model name (provider-specific)
-            
+
         Returns:
             An instance of the requested provider
-            
+
         Raises:
             ValueError: If the provider is not registered
         """
@@ -119,46 +118,44 @@ class ProviderFactory:
         self,
         provider_name: str,
         config: ProviderConfig,
-        model: Optional[str] = None,
+        model: str | None = None,
     ) -> BaseLLMProvider:
         """Get an existing provider instance or create a new one.
-        
+
         This method implements a simple caching mechanism to reuse provider
         instances when the same configuration is requested.
-        
+
         Args:
             provider_name: The name of the provider
             config: The configuration for the provider
             model: Optional model name
-            
+
         Returns:
             A provider instance (cached or new)
         """
         cache_key = f"{provider_name}:{model or 'default'}"
-        
+
         if cache_key not in self._active_instances:
-            self._active_instances[cache_key] = self.create_provider(
-                provider_name, config, model
-            )
-        
+            self._active_instances[cache_key] = self.create_provider(provider_name, config, model)
+
         return self._active_instances[cache_key]
 
     async def close_all(self) -> None:
         """Close all active provider instances.
-        
+
         This method should be called during application shutdown to ensure
         proper cleanup of resources (e.g., closing httpx clients).
         """
         for instance in self._active_instances.values():
             if hasattr(instance, "close"):
                 await instance.close()
-        
+
         self._active_instances.clear()
         logger.info("All provider instances closed")
 
     def clear_cache(self) -> None:
         """Clear the provider instance cache without closing instances.
-        
+
         This is useful for forcing fresh instances to be created.
         """
         self._active_instances.clear()

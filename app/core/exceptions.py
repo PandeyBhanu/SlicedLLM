@@ -1,19 +1,21 @@
-from typing import Any, Dict, Optional
+from typing import Any
+
+import structlog
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-import structlog
 
 logger = structlog.get_logger(__name__)
 
 
 class BaseAppException(Exception):
     """Base exception class for SlicedLLM application exceptions."""
+
     def __init__(
         self,
         message: str,
         status_code: int = 500,
         error_code: str = "INTERNAL_SERVER_ERROR",
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
     ):
         super().__init__(message)
         self.message = message
@@ -24,7 +26,8 @@ class BaseAppException(Exception):
 
 class EntityNotFoundException(BaseAppException):
     """Raised when a requested resource is not found."""
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(
             message=message,
             status_code=404,
@@ -35,7 +38,8 @@ class EntityNotFoundException(BaseAppException):
 
 class ValidationError(BaseAppException):
     """Raised when business validation rules fail."""
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(
             message=message,
             status_code=400,
@@ -46,7 +50,8 @@ class ValidationError(BaseAppException):
 
 class ProviderError(BaseAppException):
     """Raised when an LLM provider integration fails."""
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(
             message=message,
             status_code=502,
@@ -57,13 +62,39 @@ class ProviderError(BaseAppException):
 
 class ConcurrencyError(BaseAppException):
     """Raised when optimistic locking or concurrent operations conflict."""
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(
             message=message,
             status_code=409,
             error_code="CONCURRENCY_CONFLICT",
             details=details,
         )
+
+
+class ImmutableEntityError(BaseAppException):
+    """Raised when code tries to modify or delete content that must never change."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
+        super().__init__(
+            message=message,
+            status_code=409,
+            error_code="IMMUTABLE_ENTITY",
+            details=details,
+        )
+
+
+class AppendOnlyError(ImmutableEntityError):
+    """Raised when code tries to UPDATE/DELETE an append-only audit record."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
+        super().__init__(message=message, details=details)
+        self.error_code = "APPEND_ONLY"
+
+
+class AuthenticationError(BaseAppException):
+    def __init__(self, message: str = "Invalid or missing API key"):
+        super().__init__(message=message, status_code=401, error_code="UNAUTHENTICATED")
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -84,7 +115,7 @@ def register_exception_handlers(app: FastAPI) -> None:
                     "code": exc.error_code,
                     "message": exc.message,
                     "details": exc.details,
-                }
+                },
             },
         )
 
@@ -103,6 +134,6 @@ def register_exception_handlers(app: FastAPI) -> None:
                     "code": "INTERNAL_SERVER_ERROR",
                     "message": "An unexpected error occurred. Please contact support.",
                     "details": {},
-                }
+                },
             },
         )

@@ -1,6 +1,6 @@
 import logging
 import sys
-from typing import Any, Dict
+
 import structlog
 
 from app.core.config import settings

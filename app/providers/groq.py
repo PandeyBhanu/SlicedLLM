@@ -1,5 +1,5 @@
 import time
-from typing import Optional
+
 import httpx
 import structlog
 
@@ -11,7 +11,7 @@ logger = structlog.get_logger(__name__)
 
 class GroqProvider(BaseLLMProvider):
     """Groq provider implementation using httpx AsyncClient.
-    
+
     Groq provides fast inference with various open-source models.
     This implementation uses the Groq Cloud API.
     """
@@ -27,7 +27,7 @@ class GroqProvider(BaseLLMProvider):
     def __init__(self, config: ProviderConfig, model: str = "llama3-8b-8192"):
         super().__init__(config)
         self.model = model
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -51,16 +51,16 @@ class GroqProvider(BaseLLMProvider):
     async def generate(
         self,
         prompt: str,
-        system_prompt: Optional[str] = None,
-        params: Optional[GenerationParams] = None,
+        system_prompt: str | None = None,
+        params: GenerationParams | None = None,
     ) -> LLMResponse:
         """Generate a response using Groq API.
-        
+
         Args:
             prompt: The user prompt
             system_prompt: Optional system prompt
             params: Generation parameters
-            
+
         Returns:
             LLMResponse: Standardized response
         """
@@ -86,6 +86,9 @@ class GroqProvider(BaseLLMProvider):
 
         if params.top_p:
             payload["top_p"] = params.top_p
+
+        if params.json_mode:
+            payload["response_format"] = {"type": "json_object"}
 
         if params.frequency_penalty is not None:
             payload["frequency_penalty"] = params.frequency_penalty

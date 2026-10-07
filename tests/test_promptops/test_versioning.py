@@ -1,5 +1,11 @@
 import pytest
-from app.promptops.versioning import SemanticVersion, VersionRange, validate_semantic_version, suggest_next_version
+
+from app.promptops.versioning import (
+    SemanticVersion,
+    VersionRange,
+    suggest_next_version,
+    validate_semantic_version,
+)
 
 
 def test_semantic_version_from_string():
@@ -14,10 +20,10 @@ def test_semantic_version_from_string_invalid():
     """Test parsing invalid semantic version string."""
     with pytest.raises(ValueError):
         SemanticVersion.from_string("invalid")
-    
+
     with pytest.raises(ValueError):
         SemanticVersion.from_string("1.2")
-    
+
     with pytest.raises(ValueError):
         SemanticVersion.from_string("1.2.3.4")
 
@@ -33,7 +39,7 @@ def test_semantic_version_comparison():
     v1 = SemanticVersion.from_string("1.2.3")
     v2 = SemanticVersion.from_string("1.2.4")
     v3 = SemanticVersion.from_string("2.0.0")
-    
+
     assert v1 < v2
     assert v2 > v1
     assert v1 <= v2
@@ -75,7 +81,7 @@ def test_semantic_version_compatibility():
     v1 = SemanticVersion.from_string("1.2.3")
     v2 = SemanticVersion.from_string("1.3.0")
     v3 = SemanticVersion.from_string("2.0.0")
-    
+
     assert v1.is_compatible_with(v2)
     assert not v1.is_compatible_with(v3)
 
@@ -86,7 +92,7 @@ def test_semantic_version_difference():
     v2 = SemanticVersion.from_string("1.2.4")
     v3 = SemanticVersion.from_string("1.3.0")
     v4 = SemanticVersion.from_string("2.0.0")
-    
+
     assert v1.get_version_difference(v1) == "same"
     assert v1.get_version_difference(v2) == "patch"
     assert v1.get_version_difference(v3) == "minor"
@@ -97,9 +103,9 @@ def test_version_range_includes():
     """Test version range inclusion."""
     min_v = SemanticVersion.from_string("1.0.0")
     max_v = SemanticVersion.from_string("2.0.0")
-    
+
     range_obj = VersionRange(min_version=min_v, max_version=max_v)
-    
+
     assert range_obj.includes(SemanticVersion.from_string("1.5.0"))
     assert range_obj.includes(SemanticVersion.from_string("1.0.0"))
     assert range_obj.includes(SemanticVersion.from_string("2.0.0"))

@@ -1,4 +1,5 @@
 import pytest
+
 from app.providers.models import GenerationParams, LLMResponse, ProviderConfig, TokenUsage
 
 
@@ -12,7 +13,7 @@ def test_provider_config_creation():
         retry_delay=1.0,
         max_concurrent_requests=10,
     )
-    
+
     assert config.base_url == "http://localhost:11434"
     assert config.api_key == "test-key"
     assert config.timeout == 30.0
@@ -29,7 +30,7 @@ def test_generation_params_creation():
         frequency_penalty=0.5,
         presence_penalty=0.5,
     )
-    
+
     assert params.temperature == 0.7
     assert params.max_tokens == 100
     assert params.top_p == 0.9
@@ -42,14 +43,14 @@ def test_generation_params_validation():
     # Temperature should be between 0 and 2
     with pytest.raises(ValueError):
         GenerationParams(temperature=3.0)
-    
+
     with pytest.raises(ValueError):
         GenerationParams(temperature=-1.0)
-    
+
     # Top-p should be between 0 and 1
     with pytest.raises(ValueError):
         GenerationParams(top_p=1.5)
-    
+
     with pytest.raises(ValueError):
         GenerationParams(top_p=-0.5)
 
@@ -61,7 +62,7 @@ def test_llm_response_creation():
         completion_tokens=20,
         total_tokens=30,
     )
-    
+
     response = LLMResponse(
         content="Test response",
         provider="ollama",
@@ -70,7 +71,7 @@ def test_llm_response_creation():
         token_usage=token_usage,
         estimated_cost=0.001,
     )
-    
+
     assert response.content == "Test response"
     assert response.provider == "ollama"
     assert response.model == "llama3"
@@ -86,7 +87,7 @@ def test_token_usage_creation():
         completion_tokens=20,
         total_tokens=30,
     )
-    
+
     assert usage.prompt_tokens == 10
     assert usage.completion_tokens == 20
     assert usage.total_tokens == 30
@@ -100,7 +101,7 @@ def test_llm_response_without_optional_fields():
         model="llama3",
         latency_ms=150.5,
     )
-    
+
     assert response.content == "Test response"
     assert response.token_usage is None
     assert response.estimated_cost is None

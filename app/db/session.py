@@ -1,5 +1,7 @@
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+
 from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
@@ -7,33 +9,29 @@ from sqlalchemy.ext.asyncio import (
 
 from app.core.config import settings
 
-# Create async engine with robust connection pooling config
-async_engine = create_async_engine(
-    settings.DATABASE_URL,  # type: ignore
-    echo=False,  # Set to True only for verbose debugging
-    pool_size=20,
-    max_overflow=10,
-    pool_pre_ping=True,  # Automatically check connection health
-)
 
-# Async session maker
-async_session_maker = async_sessionmaker(
-    bind=async_engine,
-    class_=AsyncSession,
-    expire_on_commit=False,  # Essential for async SQLAlchemy
-)
+def make_engine(url: str, **kwargs) -> AsyncEngine:
+    return create_async_engine(url, pool_pre_ping=True, **kwargs)
+
+
+def make_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+
+
+async_engine = make_engine(settings.DATABASE_URL, pool_size=20, max_overflow=10)  # type: ignore[arg-type]
+async_session_maker = make_session_factory(async_engine)
+
+
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Indirection so tests / workers can be pointed at another database."""
+    return async_session_maker
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI Dependency for yielding db sessions.
-    
-    Ensures rollback on exceptions and final cleanup on request completion.
-    """
-    async with async_session_maker() as session:
+    """FastAPI dependency: one session per request, rolled back on error."""
+    async with get_session_factory()() as session:
         try:
             yield session
         except Exception:
             await session.rollback()
             raise
-        finally:
-            await session.close()

@@ -1,248 +1,93 @@
 # SlicedLLM
 
-A production-grade PromptOps platform for AI prompt versioning, evaluation, and management. Built with FastAPI (backend) and Next.js 15 (frontend).
+An LLM evaluation platform: versioned prompts, token-level diffs, a tamper-evident audit trail, and durable A/B evaluation runs scored by a judge LLM. FastAPI + PostgreSQL backend, Next.js 15 dashboard.
 
-## Features
+> Engineering decisions, the current-vs-target architecture, failure-mode analysis, and an interview study guide live in [decisions.md](decisions.md). The original prototype audit is in [AUDIT.md](AUDIT.md).
 
-### Backend (FastAPI)
-- **Prompt Registry**: Create, manage, and version prompts with semantic versioning
-- **Version Management**: Immutable prompt versions with activation/deactivation
-- **Diff Engine**: Side-by-side comparison of prompt versions with detailed analysis
-- **Evaluation System**: Run evaluations against datasets with multiple LLM providers
-- **Changelog & Audit**: Complete audit trail of all operations
-- **Provider Abstraction**: Support for Ollama, Groq, and OpenAI providers
-- **RESTful API**: Full API with OpenAPI documentation
+## What it does
 
-### Frontend (Next.js 15)
-- **Dashboard**: Overview of prompts, evaluations, and statistics
-- **Prompt Registry**: UI for managing prompts and versions
-- **Diff View**: Visual comparison of prompt versions
-- **Evaluation Runner**: Configure and run evaluations
-- **Results Page**: View evaluation results with charts and metrics
-- **Changelog**: Timeline view of all changes
+- **Prompt registry** — prompts with multiple semantic-versioned, *immutable* versions. Content changes are impossible (PostgreSQL trigger) and detectable (SHA-256 `content_hash` + `GET .../integrity`).
+- **Token-level diff** — `tiktoken`-backed diffs (BPE units fused at UTF-8 boundaries) with per-segment token counts, similarity stats, and a hierarchical line-anchored algorithm for large prompts. Tokenizer is selectable per model/provider.
+- **Append-only audit trail** — every state change writes a hash-chained `audit_logs` event (`seq`, `prev_hash`, `event_hash`, actor, request id, before/after state) in the *same transaction* as the change. Triggers reject UPDATE/DELETE/TRUNCATE; `GET /audit/verify` re-verifies the whole chain.
+- **Durable A/B evaluations** — `POST /evaluations/runs` enqueues a run row; a DB-backed worker (`SELECT ... FOR UPDATE SKIP LOCKED`, heartbeat, stale-run recovery) executes it. Per case both candidate calls run concurrently, then one or two judge passes (position-swapped to cancel position bias). Everything is persisted: rendered prompts, outputs, tokens, latency, cost, per-criterion rubric scores, raw judge responses.
+- **Dashboard** — Next.js UI for prompts/versions, diffs, datasets, run creation, live status polling, per-case results with candidate outputs and rubric breakdowns, and the audit/changelog timeline.
 
-## Tech Stack
+## Tech stack
 
-### Backend
-- **FastAPI**: Modern, fast web framework
-- **SQLAlchemy**: ORM with async support
-- **PostgreSQL**: Production database
-- **Alembic**: Database migrations
-- **Pydantic**: Data validation
-- **Structlog**: Structured logging
+| Layer    | Choice |
+|----------|--------|
+| API      | FastAPI, Pydantic v2, structlog |
+| DB       | PostgreSQL (asyncpg + SQLAlchemy 2 async), Alembic |
+| LLMs     | Ollama (local) and Groq (OpenAI-compatible). No OpenAI provider is implemented. |
+| Worker   | In-process async worker polling the `evaluation_runs` table (also runnable standalone via `python -m app.jobs`) |
+| Frontend | Next.js 15 App Router, React 18, TypeScript, TanStack Query, Tailwind, Recharts |
+| Tests    | pytest + pytest-asyncio against **real PostgreSQL** (triggers, SKIP LOCKED, JSONB — never SQLite) |
 
-### Frontend
-- **Next.js 15**: React framework with App Router
-- **TypeScript**: Type-safe development
-- **Tailwind CSS**: Utility-first styling
-- **shadcn/ui**: Reusable UI components
-- **TanStack Query**: Data fetching and caching
-- **Recharts**: Data visualization
-- **Lucide React**: Icons
-
-## Prerequisites
-
-- Docker and Docker Compose
-- Node.js 18+ and npm
-- Python 3.10+ (for local development without Docker)
-
-## Quick Start
-
-### 1. Clone the Repository
+## Quick start
 
 ```bash
-git clone https://github.com/PandeyBhanu/SlicedLLM.git
-cd SlicedLLM
-```
+# 1. PostgreSQL (or use docker-compose below)
+docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=slicedllm postgres:16-alpine
 
-### 2. Setup Environment Variables
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and add your API keys if using cloud providers:
-
-```bash
-# Optional: Add Groq API key for Groq provider
-GROQ_API_KEY=your_groq_api_key_here
-
-# Optional: Add OpenAI API key for OpenAI provider
-OPENAI_API_KEY=your_openai_api_key_here
-```
-
-### 3. Start Backend with Docker Compose
-
-```bash
-docker-compose up -d
-```
-
-This will:
-- Start PostgreSQL database on port 5432
-- Start FastAPI backend on port 8000
-- Run database migrations automatically
-
-### 4. Setup Frontend
-
-```bash
-cd frontend
-npm install
-```
-
-### 5. Configure Frontend Environment
-
-Create `frontend/.env.local`:
-
-```bash
-NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
-```
-
-### 6. Start Frontend Development Server
-
-```bash
-npm run dev
-```
-
-The frontend will be available at http://localhost:3000
-
-## Access Points
-
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:8000
-- **API Documentation**: http://localhost:8000/docs
-- **Database**: localhost:5432
-
-## Local Development (Without Docker)
-
-### Start PostgreSQL
-
-```bash
-docker run -d -p 5432:5432 \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=slicedllm \
-  postgres:16-alpine
-```
-
-### Setup Python Environment
-
-```bash
-cd SlicedLLM
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# 2. Backend
+python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
+cp .env.example .env                              # set GROQ_API_KEY if you want the cloud provider
+alembic upgrade head                              # or leave AUTO_CREATE_SCHEMA=true
+uvicorn app.main:app --reload --port 8000         # API + in-app worker
+
+# 3. Frontend
+cd frontend && npm install && cp .env.example .env.local
+npm run dev                                       # http://localhost:3000
 ```
 
-### Run Database Migrations
+`docker-compose up -d` also works (Postgres + API with reload).
+
+Standalone worker instead of in-app: set `RUN_WORKER_IN_APP=false`, then `python -m app.jobs`.
+
+## Try it end to end
+
+1. **Prompts** → create a prompt, create two versions, activate one.
+2. **Diff** → pick the two versions; see token-level inserts/deletes and similarity.
+3. **Datasets** → create a dataset, add cases (input text + optional expected behavior).
+4. **Evaluation** → pick dataset + version A + version B + rubric + provider/model → submit.
+5. **Results** → the run card polls while `PENDING`/`RUNNING`; click it to see per-case outputs, judge scores, rubric breakdown, tokens, cost, latency, and partial failures.
+6. **Changelog** → every create/activate/rollback/run appears in the hash-chained audit trail; "verify chain" recomputes all hashes.
+
+For a judge, the default rubric is seeded automatically on first run creation. A judge with a different model than the candidates can be selected on the Evaluation page.
+
+## API map (all under `/api/v1`)
+
+| Area | Endpoints |
+|------|-----------|
+| Prompts | `POST/GET /prompts`, `GET/PATCH /prompts/{id}` |
+| Versions | `POST /prompts/{id}/versions`, `GET .../versions`, `GET .../versions/{vid}`, `POST .../activate`, `POST /prompts/{id}/rollback`, `GET .../integrity` |
+| Diff | `GET /prompts/{id}/diff?version_a_id=..&version_b_id=..&model=..` |
+| Changelog / audit | `GET /prompts/{id}/changelog`, `GET /prompts/{id}/audit`, `GET /audit/events`, `GET /audit/verify` |
+| Datasets | `POST/GET /datasets`, `GET /datasets/{id}`, `POST /datasets/{id}/cases` |
+| Evaluations | `POST/GET /evaluations/runs`, `GET /evaluations/runs/{id}`, `POST .../cancel`, `GET .../cases`, `GET .../summary`, `GET/POST /evaluations/rubrics` |
+
+Interactive docs: http://localhost:8000/docs. Error shape is `{"error": {"code", "message", "details"}}` and is what the frontend reads.
+
+## Configuration
+
+See [.env.example](.env.example). Notables: `API_KEY` (optional shared `X-API-Key` auth), `EVALUATION_*` (concurrency, timeouts, retries), `JOB_*` (worker poll/heartbeat/recovery), `DEFAULT_JUDGE_PROVIDER`/`DEFAULT_JUDGE_MODEL`.
+
+## Testing
 
 ```bash
-alembic upgrade head
+# Point at a disposable PostgreSQL DB (its schema is dropped per test session)
+export TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/slicedllm_test
+pytest -q            # 178 tests
+cd frontend && npx tsc --noEmit && npm run build
 ```
 
-### Start Backend Server
+Tests require real PostgreSQL: the suite exercises triggers, `SKIP LOCKED` claiming, JSONB, advisory locks, and transaction isolation that SQLite cannot express. Tests simulate crash recovery, cancellation, 429s, malformed judge output, and audit tampering — no live LLM is needed.
 
-```bash
-uvicorn app.main:app --reload --port 8000
-```
+## Known limitations (the honest list)
 
-Then follow steps 4-6 from the Quick Start for the frontend.
-
-## Project Structure
-
-```
-SlicedLLM/
-├── app/                      # Backend application
-│   ├── api/                  # API endpoints
-│   ├── core/                 # Core configuration
-│   ├── db/                   # Database setup
-│   ├── evaluation/           # Evaluation engine
-│   ├── models/               # Database models
-│   ├── promptops/            # Prompt operations
-│   ├── providers/            # LLM providers
-│   ├── repositories/         # Data access layer
-│   ├── schemas/              # Pydantic schemas
-│   └── services/             # Business logic
-├── frontend/                 # Next.js frontend
-│   ├── src/
-│   │   ├── app/              # App router pages
-│   │   ├── components/       # React components
-│   │   ├── hooks/            # Custom hooks
-│   │   ├── lib/              # Utilities
-│   │   └── types/            # TypeScript types
-│   ├── package.json
-│   └── tsconfig.json
-├── tests/                    # Test suite
-├── alembic/                  # Database migrations
-├── docker-compose.yml
-├── Dockerfile
-├── requirements.txt
-└── .env.example
-```
-
-## LLM Providers
-
-### Ollama (Local)
-- Default local provider
-- No API key required
-- Requires Ollama running locally: http://localhost:11434
-- Supported models: llama3, llama2, mistral
-
-### Groq (Cloud)
-- Fast cloud provider
-- Requires `GROQ_API_KEY` in `.env`
-- Get API key: https://console.groq.com/keys
-- Supported models: llama3-8b-8192, mixtral-8x7b-32768, gemma-7b-it
-
-### OpenAI (Cloud)
-- Premium cloud provider
-- Requires `OPENAI_API_KEY` in `.env`
-- Supported models: gpt-4, gpt-3.5-turbo, gpt-4-turbo
-
-## Running Tests
-
-```bash
-# Backend tests
-cd SlicedLLM
-pytest
-
-# With coverage
-pytest --cov=app --cov-report=html
-```
-
-## Stopping the Project
-
-### With Docker Compose
-```bash
-docker-compose down
-```
-
-### Local Backend
-Press `Ctrl+C` in the terminal running uvicorn
-
-### Frontend
-Press `Ctrl+C` in the terminal running `npm run dev`
-
-## API Documentation
-
-Once the backend is running, visit http://localhost:8000/docs for interactive API documentation (Swagger UI).
-
-## Environment Variables
-
-See `.env.example` for all available configuration options:
-
-- **Database**: PostgreSQL connection settings
-- **API**: API configuration and security
-- **Providers**: Ollama, Groq, OpenAI settings
-- **Evaluation**: Evaluation engine configuration
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests
-5. Submit a pull request
-
-## License
-
-MIT License - see LICENSE file for details
+- One worker process executes runs; the queue is polled, not pushed. Fine up to ~O(100k) runs/day, then move to a real broker (see decisions.md §Scaling).
+- `X-Actor-Id`/`X-API-Key` are asserted, not authenticated — there is no per-user auth or tenancy.
+- Audit-chain truncation of the *tail* is only detectable with an external head checkpoint (`verify_audit_chain(expected_head=...)`).
+- Judge quality depends on the judge model; a weak judge produces weak verdicts. Position-swap mitigates, not eliminates, bias.
+- Cost is estimated from provider-reported token counts and per-provider pricing where available; treat it as approximate.

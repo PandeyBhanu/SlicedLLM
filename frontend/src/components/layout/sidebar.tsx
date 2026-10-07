@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
 import { 
   LayoutDashboard, 
   FileText, 
@@ -11,16 +10,17 @@ import {
   PlayCircle, 
   BarChart3, 
   History,
-  Settings
+  Database,
 } from 'lucide-react';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Prompts', href: '/prompts', icon: FileText },
   { name: 'Diff View', href: '/diff', icon: GitCompare },
+  { name: 'Datasets', href: '/datasets', icon: Database },
   { name: 'Evaluation', href: '/evaluation', icon: PlayCircle },
   { name: 'Results', href: '/results', icon: BarChart3 },
-  { name: 'Changelog', href: '/changelog', icon: History },
+  { name: 'Changelog & Audit', href: '/changelog', icon: History },
 ];
 
 export function Sidebar() {
@@ -51,14 +51,6 @@ export function Sidebar() {
           );
         })}
       </nav>
-      <div className="border-t p-4">
-        <Link href="/settings">
-          <Button variant="ghost" className="w-full justify-start">
-            <Settings className="mr-2 h-5 w-5" />
-            Settings
-          </Button>
-        </Link>
-      </div>
     </div>
   );
 }

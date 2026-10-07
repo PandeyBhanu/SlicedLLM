@@ -1,205 +1,144 @@
 'use client';
 
 import { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { usePrompts, useChangelog, usePromptAuditHistory } from '@/hooks/use-api';
-import { History, GitCommit, Clock, User, ArrowRight } from 'lucide-react';
 import { format } from 'date-fns';
+import { GitCommit, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Empty, ErrorBox, Loading, Pill } from '@/components/ui/bits';
+import { useAuditVerification, useChangelog, usePromptAudit, usePrompts } from '@/hooks/use-api';
+
+const ACTION_TONE: Record<string, 'green' | 'blue' | 'red' | 'gray'> = {
+  CREATE: 'green', ACTIVATE: 'blue', ROLLBACK: 'red', UPDATE: 'gray', CANCEL: 'gray',
+};
+
+function ChainStatus() {
+  const { data, isFetching, error, refetch } = useAuditVerification();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          {data?.valid === false ? <ShieldAlert className="h-5 w-5 text-red-600" /> : <ShieldCheck className="h-5 w-5 text-green-600" />}
+          Audit chain integrity
+        </CardTitle>
+        <CardDescription>
+          Recomputes every event hash and link. Detects modified, deleted and reordered events (not truncation of the newest events).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {isFetching && <Loading label="Verifying…" />}
+        <ErrorBox error={error} />
+        {data && (
+          <div className="text-sm">
+            {data.valid ? (
+              <span className="text-green-700">Valid · {data.events_checked} event(s) · head #{data.head_seq ?? '—'}</span>
+            ) : (
+              <div className="space-y-1 text-red-700">
+                <div>TAMPERING DETECTED · {data.errors.length} problem(s)</div>
+                {data.errors.slice(0, 10).map((e, i) => <div key={i} className="font-mono text-xs">#{e.seq} {e.kind}: {e.detail}</div>)}
+              </div>
+            )}
+          </div>
+        )}
+        <Button variant="outline" size="sm" onClick={() => refetch()}>Re-verify</Button>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function ChangelogPage() {
   const { data: prompts } = usePrompts();
-  const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
-  const { data: changelog } = useChangelog(selectedPrompt || '', true);
-  const { data: auditHistory } = usePromptAuditHistory(selectedPrompt || '');
-
-  const selectedPromptData = prompts?.find(p => p.id === selectedPrompt);
-
-  const getChangeIcon = (changeType: string) => {
-    switch (changeType) {
-      case 'created':
-        return <GitCommit className="h-4 w-4 text-green-500" />;
-      case 'activated':
-        return <GitCommit className="h-4 w-4 text-blue-500" />;
-      case 'rollback':
-        return <GitCommit className="h-4 w-4 text-orange-500" />;
-      default:
-        return <GitCommit className="h-4 w-4 text-gray-500" />;
-    }
-  };
-
-  const getActionIcon = (action: string) => {
-    switch (action) {
-      case 'CREATE':
-        return <GitCommit className="h-4 w-4 text-green-500" />;
-      case 'UPDATE':
-        return <GitCommit className="h-4 w-4 text-blue-500" />;
-      case 'ACTIVATE':
-        return <GitCommit className="h-4 w-4 text-purple-500" />;
-      case 'ROLLBACK':
-        return <GitCommit className="h-4 w-4 text-orange-500" />;
-      default:
-        return <GitCommit className="h-4 w-4 text-gray-500" />;
-    }
-  };
+  const [promptId, setPromptId] = useState('');
+  const { data: changelog, isLoading, error } = useChangelog(promptId);
+  const { data: audit, isLoading: auditLoading, error: auditError } = usePromptAudit(promptId);
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Changelog & Audit History</h1>
-        <p className="text-muted-foreground">
-          Track version changes and audit history for your prompts
-        </p>
+        <h1 className="text-3xl font-bold tracking-tight">Changelog & Audit</h1>
+        <p className="text-muted-foreground">Version history with token-level change sizes, and the hash-chained audit trail.</p>
       </div>
+
+      <ChainStatus />
 
       <div className="grid gap-6 md:grid-cols-3">
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <History className="h-5 w-5" />
-              Select Prompt
-            </CardTitle>
-            <CardDescription>Choose a prompt to view history</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {prompts?.map((prompt) => (
-                <button
-                  key={prompt.id}
-                  onClick={() => setSelectedPrompt(prompt.id)}
-                  className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                    selectedPrompt === prompt.id
-                      ? 'bg-primary text-primary-foreground'
-                      : 'hover:bg-accent'
-                  }`}
-                >
-                  <div className="font-medium">{prompt.name}</div>
-                  {prompt.description && (
-                    <div className="text-xs opacity-80 mt-1">{prompt.description}</div>
-                  )}
-                </button>
-              ))}
-            </div>
+          <CardHeader><CardTitle>Prompt</CardTitle></CardHeader>
+          <CardContent className="space-y-2">
+            {prompts?.length === 0 && <Empty>No prompts yet.</Empty>}
+            {prompts?.map((p) => (
+              <button key={p.id} onClick={() => setPromptId(p.id)}
+                className={`w-full rounded-lg border p-3 text-left ${promptId === p.id ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}>
+                {p.name}
+              </button>
+            ))}
           </CardContent>
         </Card>
 
-        {selectedPrompt && (
-          <>
-            <Card className="md:col-span-2">
-              <CardHeader>
-                <CardTitle>Version Changelog</CardTitle>
-                <CardDescription>
-                  {selectedPromptData?.name} - Version history
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {!changelog || changelog.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">No changelog entries</div>
-                ) : (
-                  <div className="space-y-4">
-                    {changelog.map((entry, index) => (
-                      <div key={index} className="flex gap-4">
-                        <div className="flex flex-col items-center">
-                          <div className="w-8 h-8 rounded-full bg-background border flex items-center justify-center">
-                            {getChangeIcon(entry.change_type)}
-                          </div>
-                          {index < changelog.length - 1 && (
-                            <div className="w-0.5 h-full bg-border mt-2" />
-                          )}
+        <div className="space-y-6 md:col-span-2">
+          {!promptId ? <Empty>Select a prompt.</Empty> : (
+            <>
+              <Card>
+                <CardHeader><CardTitle>Version changelog</CardTitle></CardHeader>
+                <CardContent className="space-y-3">
+                  {isLoading && <Loading />}
+                  <ErrorBox error={error} />
+                  {changelog?.length === 0 && <Empty>No versions yet.</Empty>}
+                  {changelog?.map((e) => (
+                    <div key={e.version_id} className="flex gap-3 border-b pb-3 last:border-0">
+                      <GitCommit className="mt-1 h-4 w-4" />
+                      <div className="text-sm">
+                        <div className="flex items-center gap-2 font-medium">
+                          {e.semantic_version} {e.is_active && <Pill tone="green">active</Pill>}
                         </div>
-                        <div className="flex-1 pb-6">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium">{entry.semantic_version}</span>
-                            {entry.is_active && (
-                              <span className="text-xs bg-green-500 px-2 py-0.5 rounded text-white">
-                                Active
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-sm text-muted-foreground mt-1">
-                            {entry.description}
-                          </div>
-                          {entry.timestamp && (
-                            <div className="flex items-center gap-1 text-xs text-muted-foreground mt-2">
-                              <Clock className="h-3 w-3" />
-                              {format(new Date(entry.timestamp), 'MMM d, yyyy HH:mm')}
-                            </div>
-                          )}
-                          {entry.diff && (
-                            <div className="mt-3 p-3 bg-muted rounded-lg text-sm">
-                              <div className="font-medium mb-2">Diff Summary</div>
-                              <div className="grid grid-cols-3 gap-2 text-xs">
-                                <div>
-                                  <span className="text-green-600">+{entry.diff.diff.additions}</span> additions
-                                </div>
-                                <div>
-                                  <span className="text-red-600">-{entry.diff.diff.deletions}</span> deletions
-                                </div>
-                                <div>
-                                  {(entry.diff.diff.similarity_ratio * 100).toFixed(0)}% similar
-                                </div>
-                              </div>
-                            </div>
-                          )}
+                        <div className="text-xs text-muted-foreground">
+                          {format(new Date(e.created_at), 'MMM d, yyyy HH:mm')} · hash {e.content_hash.slice(0, 10)}…
                         </div>
+                        {e.diff_stats ? (
+                          <div className="mt-1 flex flex-wrap gap-2 text-xs">
+                            <span>vs {e.previous_version}:</span>
+                            <Pill tone="green">+{e.diff_stats.added} tokens</Pill>
+                            <Pill tone="red">-{e.diff_stats.removed} tokens</Pill>
+                            <Pill>{(e.diff_stats.similarity * 100).toFixed(0)}% similar</Pill>
+                            <Pill>{e.tokenizer}</Pill>
+                          </div>
+                        ) : <div className="text-xs text-muted-foreground">first version</div>}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </>
-        )}
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader><CardTitle>Audit events</CardTitle><CardDescription>Newest first. Append-only; each row links to the previous hash.</CardDescription></CardHeader>
+                <CardContent className="space-y-3">
+                  {auditLoading && <Loading />}
+                  <ErrorBox error={auditError} />
+                  {audit?.length === 0 && <Empty>No audit events.</Empty>}
+                  {audit?.map((ev) => (
+                    <details key={ev.id} className="rounded border p-2 text-sm">
+                      <summary className="flex cursor-pointer flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs text-muted-foreground">#{ev.seq}</span>
+                        <Pill tone={ACTION_TONE[ev.action] ?? 'gray'}>{ev.action}</Pill>
+                        <span>{ev.entity_type}</span>
+                        <span className="text-xs text-muted-foreground">
+                          by {ev.actor_id} · {format(new Date(ev.occurred_at), 'MMM d HH:mm:ss')}
+                        </span>
+                      </summary>
+                      <div className="mt-2 space-y-2 text-xs">
+                        <div className="font-mono break-all">hash {ev.event_hash}<br />prev {ev.prev_hash}</div>
+                        {ev.request_id && <div>request {ev.request_id}</div>}
+                        {ev.before_state && <pre className="overflow-auto rounded bg-red-500/10 p-2">{JSON.stringify(ev.before_state, null, 2)}</pre>}
+                        {ev.after_state && <pre className="overflow-auto rounded bg-green-500/10 p-2">{JSON.stringify(ev.after_state, null, 2)}</pre>}
+                      </div>
+                    </details>
+                  ))}
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </div>
       </div>
-
-      {selectedPrompt && auditHistory && auditHistory.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Audit History</CardTitle>
-            <CardDescription>
-              Complete audit trail of all operations
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {auditHistory.map((entry, index) => (
-                <div key={index} className="flex gap-4 items-start">
-                  <div className="w-8 h-8 rounded-full bg-background border flex items-center justify-center">
-                    {getActionIcon(entry.action)}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{entry.action}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {entry.entity_type}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-                      <Clock className="h-3 w-3" />
-                      {entry.timestamp ? format(new Date(entry.timestamp), 'MMM d, yyyy HH:mm') : 'N/A'}
-                    </div>
-                    {entry.before_state && (
-                      <div className="mt-2 p-2 bg-red-500/10 rounded text-xs">
-                        <div className="font-medium text-red-600 mb-1">Before:</div>
-                        <pre className="text-muted-foreground overflow-x-auto">
-                          {JSON.stringify(entry.before_state, null, 2)}
-                        </pre>
-                      </div>
-                    )}
-                    {entry.after_state && (
-                      <div className="mt-2 p-2 bg-green-500/10 rounded text-xs">
-                        <div className="font-medium text-green-600 mb-1">After:</div>
-                        <pre className="text-muted-foreground overflow-x-auto">
-                          {JSON.stringify(entry.after_state, null, 2)}
-                        </pre>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+
+AUDIT.md
+
 # Distribution / packaging
 .Python
 build/
@@ -14,8 +17,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -78,6 +81,7 @@ frontend/build/
 frontend/dist/
 frontend/.env.local
 frontend/.env.*.local
+*.tsbuildinfo
 
 # Other projects
 ../AgentLoop/

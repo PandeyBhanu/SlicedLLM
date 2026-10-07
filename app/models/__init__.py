@@ -1,12 +1,16 @@
-from app.models.base import Base
-from app.models.prompt import Prompt, PromptVersion
-from app.models.evaluation import (
-    EvaluationDataset,
-    EvaluationCase,
-    EvaluationRun,
-    EvaluationResult,
-)
 from app.models.audit import AuditLog
+from app.models.base import Base
+from app.models.evaluation import (
+    CandidateOutput,
+    EvaluationCase,
+    EvaluationDataset,
+    EvaluationResult,
+    EvaluationRun,
+    JudgeEvaluation,
+    Rubric,
+    RubricScore,
+)
+from app.models.prompt import Prompt, PromptVersion
 
 __all__ = [
     "Base",
@@ -16,5 +20,9 @@ __all__ = [
     "EvaluationCase",
     "EvaluationRun",
     "EvaluationResult",
+    "CandidateOutput",
+    "JudgeEvaluation",
+    "Rubric",
+    "RubricScore",
     "AuditLog",
 ]

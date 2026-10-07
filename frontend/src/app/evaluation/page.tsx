@@ -1,291 +1,172 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Play } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { useDatasets, usePrompts, useVersions, useCreateEvaluationRun } from '@/hooks/use-api';
-import { Play, Database, FileText, Settings, Loader2 } from 'lucide-react';
+import { Empty, ErrorBox, inputClass } from '@/components/ui/bits';
+import { useCreateRun, useDatasets, usePrompts, useRubrics, useVersions } from '@/hooks/use-api';
+
+const PROVIDERS = ['ollama', 'groq']; // the providers registered in app/providers/factory.py
+
+function VersionPicker({
+  label, promptId, versionId, onPrompt, onVersion,
+}: {
+  label: string; promptId: string; versionId: string;
+  onPrompt: (id: string) => void; onVersion: (id: string) => void;
+}) {
+  const { data: prompts } = usePrompts();
+  const { data: versions } = useVersions(promptId);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{label}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <select className={inputClass} value={promptId} onChange={(e) => { onPrompt(e.target.value); onVersion(''); }}>
+          <option value="">Prompt…</option>
+          {prompts?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <select className={inputClass} value={versionId} onChange={(e) => onVersion(e.target.value)} disabled={!promptId}>
+          <option value="">Version…</option>
+          {versions?.map((v) => (
+            <option key={v.id} value={v.id}>{v.semantic_version}{v.is_active ? ' (active)' : ''}</option>
+          ))}
+        </select>
+        {versionId && (
+          <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 text-xs">
+            {versions?.find((v) => v.id === versionId)?.template}
+          </pre>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function EvaluationPage() {
+  const router = useRouter();
   const { data: datasets } = useDatasets();
-  const { data: prompts } = usePrompts();
-  const createEvaluationRun = useCreateEvaluationRun();
-  
-  const [selectedDataset, setSelectedDataset] = useState<string | null>(null);
-  const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
-  const [selectedVersionA, setSelectedVersionA] = useState<string | null>(null);
-  const [selectedVersionB, setSelectedVersionB] = useState<string | null>(null);
-  const [selectedProvider, setSelectedProvider] = useState('ollama');
-  const [selectedModel, setSelectedModel] = useState('llama3');
-  const [isRunning, setIsRunning] = useState(false);
+  const { data: rubrics } = useRubrics();
+  const createRun = useCreateRun();
 
-  const { data: versions } = useVersions(selectedPrompt || '');
+  const [promptA, setPromptA] = useState('');
+  const [versionA, setVersionA] = useState('');
+  const [promptB, setPromptB] = useState('');
+  const [versionB, setVersionB] = useState('');
+  const [datasetId, setDatasetId] = useState('');
+  const [provider, setProvider] = useState('ollama');
+  const [model, setModel] = useState('');
+  const [judgeProvider, setJudgeProvider] = useState('');
+  const [judgeModel, setJudgeModel] = useState('');
+  const [rubricId, setRubricId] = useState('');
+  const [strategy, setStrategy] = useState<'both' | 'alternate' | 'none'>('both');
+  const [caseConcurrency, setCaseConcurrency] = useState('');
+  const [maxRetries, setMaxRetries] = useState('');
 
-  const handleRunEvaluation = () => {
-    if (!selectedDataset || !selectedVersionA) {
-      alert('Please select a dataset and at least one version');
-      return;
-    }
+  const dataset = datasets?.find((d) => d.id === datasetId);
+  const ready = datasetId && versionA && versionB && model.trim();
 
-    setIsRunning(true);
-    createEvaluationRun.mutate(
+  const submit = () => {
+    createRun.mutate(
       {
-        dataset_id: selectedDataset,
-        prompt_version_a_id: selectedVersionA,
-        prompt_version_b_id: selectedVersionB || undefined,
-        provider: selectedProvider,
-        model: selectedModel,
+        dataset_id: datasetId,
+        prompt_version_a_id: versionA,
+        prompt_version_b_id: versionB,
+        provider,
+        model: model.trim(),
+        judge_provider: judgeProvider || undefined,
+        judge_model: judgeModel.trim() || undefined,
+        rubric_id: rubricId || undefined,
+        settings: {
+          judge_position_strategy: strategy,
+          case_concurrency: caseConcurrency ? Number(caseConcurrency) : undefined,
+          max_retries: maxRetries ? Number(maxRetries) : undefined,
+        },
       },
-      {
-        onSuccess: () => {
-          setIsRunning(false);
-          alert('Evaluation run started successfully!');
-        },
-        onError: () => {
-          setIsRunning(false);
-          alert('Failed to start evaluation run');
-        },
-      }
+      { onSuccess: (run) => router.push(`/results?run=${run.id}`) }
     );
   };
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Evaluation Runner</h1>
+        <h1 className="text-3xl font-bold tracking-tight">New A/B Evaluation</h1>
         <p className="text-muted-foreground">
-          Run evaluations on your prompts with different datasets and providers
+          Both versions answer every case with the same model; an LLM judge scores the two outputs against a rubric.
         </p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-6 md:grid-cols-2">
+        <VersionPicker label="Prompt A" promptId={promptA} versionId={versionA} onPrompt={setPromptA} onVersion={setVersionA} />
+        <VersionPicker label="Prompt B" promptId={promptB} versionId={versionB} onPrompt={setPromptB} onVersion={setVersionB} />
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-3">
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Database className="h-5 w-5" />
-              Dataset
-            </CardTitle>
-            <CardDescription>Select evaluation dataset</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {datasets?.map((dataset) => (
-                <button
-                  key={dataset.id}
-                  onClick={() => setSelectedDataset(dataset.id)}
-                  className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                    selectedDataset === dataset.id
-                      ? 'bg-primary text-primary-foreground'
-                      : 'hover:bg-accent'
-                  }`}
-                >
-                  <div className="font-medium">{dataset.name}</div>
-                  {dataset.description && (
-                    <div className="text-xs opacity-80 mt-1">{dataset.description}</div>
-                  )}
-                  <div className="text-xs opacity-80 mt-1">
-                    {dataset.cases?.length || 0} cases
-                  </div>
-                </button>
-              ))}
-            </div>
+          <CardHeader><CardTitle>Dataset</CardTitle></CardHeader>
+          <CardContent className="space-y-2">
+            <select className={inputClass} value={datasetId} onChange={(e) => setDatasetId(e.target.value)}>
+              <option value="">Dataset…</option>
+              {datasets?.map((d) => <option key={d.id} value={d.id}>{d.name} ({d.case_count})</option>)}
+            </select>
+            {datasets?.length === 0 && <Empty>Create a dataset on the Datasets page first.</Empty>}
+            {dataset && dataset.case_count === 0 && <Empty>This dataset has no cases.</Empty>}
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              Prompt
-            </CardTitle>
-            <CardDescription>Select prompt to evaluate</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {prompts?.map((prompt) => (
-                <button
-                  key={prompt.id}
-                  onClick={() => {
-                    setSelectedPrompt(prompt.id);
-                    setSelectedVersionA(null);
-                    setSelectedVersionB(null);
-                  }}
-                  className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                    selectedPrompt === prompt.id
-                      ? 'bg-primary text-primary-foreground'
-                      : 'hover:bg-accent'
-                  }`}
-                >
-                  <div className="font-medium">{prompt.name}</div>
-                  {prompt.description && (
-                    <div className="text-xs opacity-80 mt-1">{prompt.description}</div>
-                  )}
-                </button>
-              ))}
-            </div>
+          <CardHeader><CardTitle>Generation model</CardTitle><CardDescription>Used for A and B</CardDescription></CardHeader>
+          <CardContent className="space-y-2">
+            <select className={inputClass} value={provider} onChange={(e) => setProvider(e.target.value)}>
+              {PROVIDERS.map((p) => <option key={p}>{p}</option>)}
+            </select>
+            <input className={inputClass} placeholder="model, e.g. llama3-8b-8192" value={model} onChange={(e) => setModel(e.target.value)} />
           </CardContent>
         </Card>
 
-        {selectedPrompt && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Versions</CardTitle>
-              <CardDescription>Select versions to compare</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {versions?.map((version) => (
-                  <div key={version.id} className="space-y-1">
-                    <button
-                      onClick={() => setSelectedVersionA(version.id)}
-                      className={`w-full text-left p-2 rounded border transition-colors text-sm ${
-                        selectedVersionA === version.id
-                          ? 'bg-green-500/20 border-green-500'
-                          : 'hover:bg-accent'
-                      }`}
-                    >
-                      <span className="font-medium">A: {version.semantic_version}</span>
-                      {version.is_active && (
-                        <span className="ml-2 text-xs bg-green-500 px-2 py-0.5 rounded text-white">
-                          Active
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => setSelectedVersionB(version.id)}
-                      className={`w-full text-left p-2 rounded border transition-colors text-sm ${
-                        selectedVersionB === version.id
-                          ? 'bg-blue-500/20 border-blue-500'
-                          : 'hover:bg-accent'
-                      }`}
-                    >
-                      <span className="font-medium">B: {version.semantic_version}</span>
-                      {version.is_active && (
-                        <span className="ml-2 text-xs bg-green-500 px-2 py-0.5 rounded text-white">
-                          Active
-                        </span>
-                      )}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Settings className="h-5 w-5" />
-              Provider
-            </CardTitle>
-            <CardDescription>Configure provider settings</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium">Provider</label>
-                <select
-                  value={selectedProvider}
-                  onChange={(e) => setSelectedProvider(e.target.value)}
-                  className="w-full mt-1 px-3 py-2 border rounded-md"
-                >
-                  <option value="ollama">Ollama</option>
-                  <option value="groq">Groq</option>
-                  <option value="openai">OpenAI</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-sm font-medium">Model</label>
-                <select
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  className="w-full mt-1 px-3 py-2 border rounded-md"
-                >
-                  {selectedProvider === 'ollama' && (
-                    <>
-                      <option value="llama3">llama3</option>
-                      <option value="llama2">llama2</option>
-                      <option value="mistral">mistral</option>
-                    </>
-                  )}
-                  {selectedProvider === 'groq' && (
-                    <>
-                      <option value="llama3-8b-8192">llama3-8b-8192</option>
-                      <option value="mixtral-8x7b-32768">mixtral-8x7b-32768</option>
-                      <option value="gemma-7b-it">gemma-7b-it</option>
-                    </>
-                  )}
-                  {selectedProvider === 'openai' && (
-                    <>
-                      <option value="gpt-4">gpt-4</option>
-                      <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
-                      <option value="gpt-4-turbo">gpt-4-turbo</option>
-                    </>
-                  )}
-                </select>
-              </div>
-            </div>
+          <CardHeader><CardTitle>Judge</CardTitle><CardDescription>Blank = same as generation model</CardDescription></CardHeader>
+          <CardContent className="space-y-2">
+            <select className={inputClass} value={judgeProvider} onChange={(e) => setJudgeProvider(e.target.value)}>
+              <option value="">same provider</option>
+              {PROVIDERS.map((p) => <option key={p}>{p}</option>)}
+            </select>
+            <input className={inputClass} placeholder="judge model" value={judgeModel} onChange={(e) => setJudgeModel(e.target.value)} />
+            <select className={inputClass} value={rubricId} onChange={(e) => setRubricId(e.target.value)}>
+              <option value="">default rubric</option>
+              {rubrics?.map((r) => <option key={r.id} value={r.id}>{r.name} v{r.version}</option>)}
+            </select>
           </CardContent>
         </Card>
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Evaluation Summary</CardTitle>
-          <CardDescription>
-            Review your configuration before running
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 text-sm">
-            <div>
-              <div className="text-muted-foreground">Dataset</div>
-              <div className="font-medium">
-                {datasets?.find(d => d.id === selectedDataset)?.name || 'Not selected'}
-              </div>
-            </div>
-            <div>
-              <div className="text-muted-foreground">Version A</div>
-              <div className="font-medium">
-                {versions?.find(v => v.id === selectedVersionA)?.semantic_version || 'Not selected'}
-              </div>
-            </div>
-            <div>
-              <div className="text-muted-foreground">Version B</div>
-              <div className="font-medium">
-                {versions?.find(v => v.id === selectedVersionB)?.semantic_version || 'Not selected'}
-              </div>
-            </div>
-            <div>
-              <div className="text-muted-foreground">Provider</div>
-              <div className="font-medium">
-                {selectedProvider} - {selectedModel}
-              </div>
-            </div>
-          </div>
-          <div className="mt-6">
-            <Button
-              onClick={handleRunEvaluation}
-              disabled={isRunning || !selectedDataset || !selectedVersionA}
-              className="w-full"
-              size="lg"
-            >
-              {isRunning ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Running Evaluation...
-                </>
-              ) : (
-                <>
-                  <Play className="mr-2 h-4 w-4" />
-                  Run Evaluation
-                </>
-              )}
-            </Button>
-          </div>
+        <CardHeader><CardTitle>Execution settings</CardTitle><CardDescription>Stored on the run so it can be reproduced.</CardDescription></CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-3">
+          <label className="text-sm">
+            Judge position strategy
+            <select className={inputClass} value={strategy} onChange={(e) => setStrategy(e.target.value as typeof strategy)}>
+              <option value="both">both orders (2 judge calls / case)</option>
+              <option value="alternate">alternate (1 call, order varies by case)</option>
+              <option value="none">none (no bias mitigation)</option>
+            </select>
+          </label>
+          <label className="text-sm">
+            Cases in parallel
+            <input className={inputClass} type="number" min={1} max={64} placeholder="server default" value={caseConcurrency} onChange={(e) => setCaseConcurrency(e.target.value)} />
+          </label>
+          <label className="text-sm">
+            Max retries per call
+            <input className={inputClass} type="number" min={0} max={8} placeholder="server default" value={maxRetries} onChange={(e) => setMaxRetries(e.target.value)} />
+          </label>
         </CardContent>
       </Card>
+
+      <ErrorBox error={createRun.error} />
+      <Button size="lg" className="w-full" disabled={!ready || createRun.isPending} onClick={submit}>
+        <Play className="mr-2 h-4 w-4" /> {createRun.isPending ? 'Queueing…' : 'Start evaluation'}
+      </Button>
     </div>
   );
 }
