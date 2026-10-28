@@ -89,3 +89,6 @@ frontend/.env.*.local
 ../node_modules/
 ../package.json
 ../package-lock.json
+
+# Keep private local project notes out of the repository
+/decisions.md
