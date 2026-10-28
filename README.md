@@ -2,8 +2,6 @@
 
 An LLM evaluation platform: versioned prompts, token-level diffs, a tamper-evident audit trail, and durable A/B evaluation runs scored by a judge LLM. FastAPI + PostgreSQL backend, Next.js 15 dashboard.
 
-> Engineering decisions, the current-vs-target architecture, failure-mode analysis, and an interview study guide live in [decisions.md](decisions.md). The original prototype audit is in [AUDIT.md](AUDIT.md).
-
 ## What it does
 
 - **Prompt registry** — prompts with multiple semantic-versioned, *immutable* versions. Content changes are impossible (PostgreSQL trigger) and detectable (SHA-256 `content_hash` + `GET .../integrity`).
